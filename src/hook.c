@@ -35,6 +35,7 @@
 #include "../include/MinHook.h"
 #include "buffer.h"
 #include "trampoline.h"
+#include "register.h"
 
 #ifndef ARRAYSIZE
     #define ARRAYSIZE(A) (sizeof(A)/sizeof((A)[0]))
@@ -75,6 +76,15 @@ typedef struct _HOOK_ENTRY
     UINT8  oldIPs[8];           // Instruction boundaries of the target function.
     UINT8  newIPs[8];           // Instruction boundaries of the trampoline function.
 } HOOK_ENTRY, *PHOOK_ENTRY;
+
+// Hook API information.
+typedef struct _HOOK_API_ENTRY
+{
+	LPVOID pDetour;             // Address of the detour or relay function.
+	LPVOID* ppOriginal;         // Address to save Address of the Original function.
+	char Module[MAX_PATH];
+	char ProcName[MAX_PATH];
+} HOOK_API_ENTRY, *PHOOK_API_ENTRY;
 
 // Suspended threads for Freeze()/Unfreeze().
 typedef struct _FROZEN_THREADS
@@ -472,6 +482,8 @@ MH_STATUS WINAPI MH_Initialize(VOID)
         {
             // Initialize the internal function buffer.
             InitializeBuffer();
+			// Initialize the internal function register.
+			InitializeRegister();
         }
         else
         {
@@ -500,6 +512,10 @@ MH_STATUS WINAPI MH_Uninitialize(VOID)
         status = EnableAllHooksLL(FALSE);
         if (status == MH_OK)
         {
+			// Free the internal function register.
+
+			UnInitializeRegister();
+
             // Free the internal function buffer.
 
             // HeapFree is actually not required, but some tools detect a false
@@ -872,3 +888,48 @@ const char * WINAPI MH_StatusToString(MH_STATUS status)
 
     return "(unknown)";
 }
+
+//-------------------------------------------------------------------------
+MH_STATUS WINAPI MH_CreateHookApiEx(
+	LPCWSTR pszModule, LPCSTR pszProcName, LPVOID pDetour, LPVOID *ppOriginal)
+{
+	MH_STATUS status = MH_OK;
+
+	// Call MH_CreateHookApi
+	status = MH_CreateHookApi(pszModule, pszProcName, pDetour, ppOriginal);
+
+	// RegisterHookAPI
+	if (status == MH_ERROR_MODULE_NOT_FOUND)
+	{		
+
+	}
+
+	return status;
+}
+
+
+//-------------------------------------------------------------------------
+MH_STATUS WINAPI MH_RemoveHookApiEx(
+	LPCWSTR pszModule, LPCSTR pszProcName)
+{
+	MH_STATUS status = MH_OK;
+	HMODULE hModule;
+	LPVOID  pTarget;
+	
+	// Check whether module loaded.
+	hModule = GetModuleHandleW(pszModule);
+	if (hModule != NULL)
+	{
+		// if module loaded, removehook internally.
+		pTarget = (LPVOID)GetProcAddress(hModule, pszProcName);
+		if (pTarget == NULL)
+			return MH_ERROR_FUNCTION_NOT_FOUND;
+		status = MH_RemoveHook(pTarget);
+	}
+	
+	// Check whether hook api registered.
+
+
+	return status;
+}
+

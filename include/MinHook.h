@@ -34,6 +34,10 @@
 
 #include <windows.h>
 
+//
+// Extension Feature
+// If it works correctly, compiler must know where libMinHook.x86.lib or libMinHook.x64.lib file are.
+//
 #if defined _M_X64
 #pragma comment(lib, "libMinHook.x64.lib")
 #elif defined _M_IX86
@@ -130,10 +134,38 @@ extern "C" {
     MH_STATUS WINAPI MH_CreateHookApi(
         LPCWSTR pszModule, LPCSTR pszProcName, LPVOID pDetour, LPVOID *ppOriginal);
 
+	
+	// Extension Feature
+	//
+	// Creates a Hook for the specified API function, in disabled state. 
+	// Even if module does not load yet, it prepares to create a Hook after module loads.
+	// Parameters:
+	//   pszModule  [in]  A pointer to the loaded module name which contains the
+	//                    target function.
+	//   pszTarget  [in]  A pointer to the target function name, which will be
+	//                    overridden by the detour function.
+	//   pDetour    [in]  A pointer to the detour function, which will override
+	//                    the target function.
+	//   ppOriginal [out] A pointer to the trampoline function, which will be
+	//                    used to call the original target function.
+	//                    This parameter can be NULL.
+	MH_STATUS WINAPI MH_CreateHookApiEx(
+		LPCWSTR pszModule, LPCSTR pszProcName, LPVOID pDetour, LPVOID *ppOriginal);
+
     // Removes an already created hook.
     // Parameters:
     //   pTarget [in] A pointer to the target function.
     MH_STATUS WINAPI MH_RemoveHook(LPVOID pTarget);
+
+	// Extension Feature
+	//
+	// Removes an already registered hook.
+	// Parameters:
+	//   pszModule  [in]  A pointer to the loaded module name which contains the
+	//                    target function.
+	//   pszTarget  [in]  A pointer to the target function name, which will be
+	//                    overridden by the detour function.
+	MH_STATUS WINAPI MH_RemoveHookApiEx(LPCWSTR pszModule, LPCSTR pszProcName);
 
     // Enables an already created hook.
     // Parameters:

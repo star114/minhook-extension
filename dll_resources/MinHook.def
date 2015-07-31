@@ -4,7 +4,9 @@ EXPORTS
 
     MH_CreateHook
     MH_CreateHookApi
+    MH_CreateHookApiEx
     MH_RemoveHook
+    MH_RemoveHookApiEx
     MH_EnableHook
     MH_DisableHook
     MH_QueueEnableHook
