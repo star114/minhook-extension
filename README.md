@@ -1,6 +1,6 @@
 # MinHook-Extension
 
-Based on MinHook.
+Based on MinHook. (v1.3.2-beta3 - 21 Jul 2015 (Nuget package only))
 
 ## Extension Features
 
