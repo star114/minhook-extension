@@ -1,3 +1,20 @@
+# MinHook-Extension
+
+Based on MinHook.
+
+## Extension Features
+
+### automatically hook api when dlls load.
+
+- #### Condition
+  * In MH_CreateHookApi, function returns MH_ERROR_MODULE_NOT_FOUND error if GetModuleHandleW returns NULL.
+
+### automatically linking library when include header.
+
+- #### Condition
+  * In user-side, it must contain linking library before using MinHook.
+
+
 # MinHook
 
 The Minimalistic x86/x64 API Hooking Library for Windows
@@ -70,3 +87,4 @@ Need some funds to continue developing this library. All contributions gratefull
 - ####v1.0 - 22 Nov 2009
  
   * Initial release.
+
