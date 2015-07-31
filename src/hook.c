@@ -35,7 +35,6 @@
 #include "../include/MinHook.h"
 #include "buffer.h"
 #include "trampoline.h"
-#include "register.h"
 
 #ifndef ARRAYSIZE
     #define ARRAYSIZE(A) (sizeof(A)/sizeof((A)[0]))
@@ -482,8 +481,6 @@ MH_STATUS WINAPI MH_Initialize(VOID)
         {
             // Initialize the internal function buffer.
             InitializeBuffer();
-			// Initialize the internal function register.
-			InitializeRegister();
         }
         else
         {
@@ -512,10 +509,6 @@ MH_STATUS WINAPI MH_Uninitialize(VOID)
         status = EnableAllHooksLL(FALSE);
         if (status == MH_OK)
         {
-			// Free the internal function register.
-
-			UnInitializeRegister();
-
             // Free the internal function buffer.
 
             // HeapFree is actually not required, but some tools detect a false
