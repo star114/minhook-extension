@@ -154,8 +154,9 @@ extern "C" {
 	//   ppOriginal [out] A pointer to the trampoline function, which will be
 	//                    used to call the original target function.
 	//                    This parameter can be NULL.
+	//	 fAutomaticallyEnable [in] decide to enable hook automatically.
 	MH_STATUS WINAPI MH_CreateHookApiEx(
-		LPCWSTR pszModule, LPCSTR pszProcName, LPVOID pDetour, LPVOID *ppOriginal);
+		LPCWSTR pszModule, LPCSTR pszProcName, LPVOID pDetour, LPVOID *ppOriginal, BOOL fAutomaticallyEnable);
 
     // Removes an already created hook.
     // Parameters:

@@ -77,6 +77,7 @@ typedef struct _HOOK_ENTRY
 	
 	// Extenstion Feature.
 	BOOL   isHooked : 1;		// Hooked.
+	BOOL   isAutomatic : 1;		// Automatically enable.
 	LPVOID* ppOriginal;         // Address to save Address of the Original function.
 	wchar_t Module[MAX_PATH];
 	char ProcName[MAX_PATH];
@@ -605,7 +606,7 @@ static void CheckHooks()
 					if (CreateHookInternal(pTarget, g_hooks.pItems[i].pDetour, g_hooks.pItems[i].ppOriginal) == MH_OK)
 					{
 						//Enable Hook.
-						if (g_hooks.pItems[i].isEnabled != TRUE)
+						if (g_hooks.pItems[i].isAutomatic == TRUE && g_hooks.pItems[i].isEnabled != TRUE)
 						{
 							FROZEN_THREADS threads;
 							Freeze(&threads, i, ACTION_ENABLE);
@@ -994,16 +995,17 @@ const char * WINAPI MH_StatusToString(MH_STATUS status)
 
 //-------------------------------------------------------------------------
 MH_STATUS WINAPI MH_CreateHookApiEx(
-	LPCWSTR pszModule, LPCSTR pszProcName, LPVOID pDetour, LPVOID *ppOriginal)
+	LPCWSTR pszModule, LPCSTR pszProcName, LPVOID pDetour, LPVOID *ppOriginal, BOOL fAutomaticallyEnable)
 {
 	MH_STATUS status = MH_OK;
 
-	// Call MH_CreateHookApi
-	status = MH_CreateHookApi(pszModule, pszProcName, pDetour, ppOriginal);
+	// Same as MH_CreateHookApi
+	HMODULE hModule;
+	LPVOID  pTarget;
 
-	// RegisterHookAPI
-	if (status == MH_ERROR_MODULE_NOT_FOUND)
-	{	
+	hModule = GetModuleHandleW(pszModule);
+	if (hModule == NULL)
+	{
 		status = MH_OK;
 		EnterSpinLock();
 
@@ -1028,6 +1030,7 @@ MH_STATUS WINAPI MH_CreateHookApiEx(
 				if (pHook != NULL)
 				{
 					pHook->isHooked = FALSE;
+					pHook->isAutomatic = fAutomaticallyEnable;
 					pHook->pDetour = pDetour;
 					pHook->ppOriginal = ppOriginal;
 					wcsncpy_s(pHook->Module, _countof(pHook->Module), wc, wcslen(wc) + 1);
@@ -1049,6 +1052,17 @@ MH_STATUS WINAPI MH_CreateHookApiEx(
 		}
 
 		LeaveSpinLock();
+	}
+	else
+	{
+		pTarget = (LPVOID)GetProcAddress(hModule, pszProcName);
+		if (pTarget == NULL)
+			return MH_ERROR_FUNCTION_NOT_FOUND;
+		status = MH_CreateHook(pTarget, pDetour, ppOriginal); 
+		if (status == MH_OK && fAutomaticallyEnable)
+		{
+			status = MH_EnableHook(pTarget);
+		}
 	}
 
 	return status;

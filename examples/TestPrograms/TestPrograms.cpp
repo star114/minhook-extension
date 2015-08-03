@@ -54,7 +54,7 @@ int main()
 
 		// or you can use the new helper funtion like this.
 		if (MH_CreateHookApiEx(
-			L"user32.dll", "MessageBoxW", &DetourMessageBoxW, reinterpret_cast<LPVOID*>(&fpMessageBoxW)) != MH_OK)
+			L"user32.dll", "MessageBoxW", &DetourMessageBoxW, reinterpret_cast<LPVOID*>(&fpMessageBoxW), FALSE) != MH_OK)
 		{
 			break;
 		}
@@ -71,7 +71,7 @@ int main()
 
 		// or you can use the new helper funtion like this.
 		MH_STATUS status = MH_CreateHookApiEx(
-			L"powrprof.dll", "PowerSettingRegisterNotification", &_OnPowerSettingRegisterNotification, reinterpret_cast<LPVOID*>(&fpPowerSettingRegisterNotification));
+			L"powrprof.dll", "PowerSettingRegisterNotification", &_OnPowerSettingRegisterNotification, reinterpret_cast<LPVOID*>(&fpPowerSettingRegisterNotification), TRUE);
 		if (status != MH_OK)
 		{
 			break;
