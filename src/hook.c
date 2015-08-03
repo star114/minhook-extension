@@ -74,16 +74,13 @@ typedef struct _HOOK_ENTRY
     UINT   nIP : 3;             // Count of the instruction boundaries.
     UINT8  oldIPs[8];           // Instruction boundaries of the target function.
     UINT8  newIPs[8];           // Instruction boundaries of the trampoline function.
-} HOOK_ENTRY, *PHOOK_ENTRY;
-
-// Hook API information.
-typedef struct _HOOK_API_ENTRY
-{
-	LPVOID pDetour;             // Address of the detour or relay function.
+	
+	// Extenstion Feature.
+	BOOL   isHooked : 1;		// Hooked.
 	LPVOID* ppOriginal;         // Address to save Address of the Original function.
-	char Module[MAX_PATH];
+	wchar_t Module[MAX_PATH];
 	char ProcName[MAX_PATH];
-} HOOK_API_ENTRY, *PHOOK_API_ENTRY;
+} HOOK_ENTRY, *PHOOK_ENTRY;
 
 // Suspended threads for Freeze()/Unfreeze().
 typedef struct _FROZEN_THREADS
@@ -111,6 +108,33 @@ struct
     UINT        size;       // Actual number of data items
 } g_hooks;
 
+// Hooked API for extension feature.
+long(__stdcall* g_pfLdrLoadDll)(IN PWCHAR PathToFile OPTIONAL, IN PULONG Flags OPTIONAL, IN PVOID ModuleFileName, OUT PHANDLE ModuleHandle) = NULL;
+
+//-------------------------------------------------------------------------
+static VOID EnterSpinLock(VOID)
+{
+	SIZE_T spinCount = 0;
+
+	// Wait until the flag is FALSE.
+	while (InterlockedCompareExchange(&g_isLocked, TRUE, FALSE) != FALSE)
+	{
+		// Prevent the loop from being too busy.
+		if (spinCount < 32)
+			Sleep(0);
+		else
+			Sleep(1);
+
+		spinCount++;
+	}
+}
+
+//-------------------------------------------------------------------------
+static VOID LeaveSpinLock(VOID)
+{
+	InterlockedExchange(&g_isLocked, FALSE);
+}
+
 //-------------------------------------------------------------------------
 // Returns INVALID_HOOK_POS if not found.
 static UINT FindHookEntry(LPVOID pTarget)
@@ -123,6 +147,20 @@ static UINT FindHookEntry(LPVOID pTarget)
     }
 
     return INVALID_HOOK_POS;
+}
+
+//-------------------------------------------------------------------------
+// Returns INVALID_HOOK_POS if not found.
+static UINT FindHookEntryEx(LPCWSTR pszModule, LPCSTR pszProcName)
+{
+	UINT i;
+	for (i = 0; i < g_hooks.size; ++i)
+	{
+		if (0 == _wcsicmp(pszModule, g_hooks.pItems[i].Module) && 0 == _stricmp(pszProcName, g_hooks.pItems[i].ProcName))
+			return i;
+	}
+
+	return INVALID_HOOK_POS;
 }
 
 //-------------------------------------------------------------------------
@@ -444,27 +482,136 @@ static MH_STATUS EnableAllHooksLL(BOOL enable)
 }
 
 //-------------------------------------------------------------------------
-static VOID EnterSpinLock(VOID)
+static MH_STATUS CreateHookInternal(LPVOID pTarget, LPVOID pDetour, LPVOID *ppOriginal)
 {
-    SIZE_T spinCount = 0;
+	MH_STATUS status = MH_OK;
+	if (IsExecutableAddress(pTarget) && IsExecutableAddress(pDetour))
+	{
+		UINT pos = FindHookEntry(pTarget);
+		if (pos == INVALID_HOOK_POS || !g_hooks.pItems[pos].isHooked)
+		{
+			LPVOID pBuffer = AllocateBuffer(pTarget);
+			if (pBuffer != NULL)
+			{
+				TRAMPOLINE ct;
 
-    // Wait until the flag is FALSE.
-    while (InterlockedCompareExchange(&g_isLocked, TRUE, FALSE) != FALSE)
-    {
-        // Prevent the loop from being too busy.
-        if (spinCount < 32)
-            Sleep(0);
-        else
-            Sleep(1);
+				ct.pTarget = pTarget;
+				ct.pDetour = pDetour;
+				ct.pTrampoline = pBuffer;
+				if (CreateTrampolineFunction(&ct))
+				{
+					PHOOK_ENTRY pHook = NULL;
 
-        spinCount++;
-    }
+					if (pos == INVALID_HOOK_POS)
+					{
+						pHook = AddHookEntry();
+					}
+					else
+					{
+						pHook = &g_hooks.pItems[pos];
+					}
+
+					if (pHook != NULL)
+					{
+						pHook->pTarget = ct.pTarget;
+#ifdef _M_X64
+						pHook->pDetour = ct.pRelay;
+#else
+						pHook->pDetour = ct.pDetour;
+#endif
+						pHook->pTrampoline = ct.pTrampoline;
+						pHook->patchAbove = ct.patchAbove;
+						pHook->isEnabled = FALSE;
+						pHook->queueEnable = FALSE;
+						pHook->nIP = ct.nIP;
+						memcpy(pHook->oldIPs, ct.oldIPs, ARRAYSIZE(ct.oldIPs));
+						memcpy(pHook->newIPs, ct.newIPs, ARRAYSIZE(ct.newIPs));
+
+						pHook->isHooked = TRUE;
+						pHook->ppOriginal = ppOriginal;
+						memset(pHook->Module, 0, MAX_PATH);
+						memset(pHook->ProcName, 0, MAX_PATH);
+						// Back up the target function.
+
+						if (ct.patchAbove)
+						{
+							memcpy(
+								pHook->backup,
+								(LPBYTE)pTarget - sizeof(JMP_REL),
+								sizeof(JMP_REL) + sizeof(JMP_REL_SHORT));
+						}
+						else
+						{
+							memcpy(pHook->backup, pTarget, sizeof(JMP_REL));
+						}
+
+						if (ppOriginal != NULL)
+							*ppOriginal = pHook->pTrampoline;
+					}
+					else
+					{
+						status = MH_ERROR_MEMORY_ALLOC;
+					}
+				}
+				else
+				{
+					status = MH_ERROR_UNSUPPORTED_FUNCTION;
+				}
+
+				if (status != MH_OK)
+				{
+					FreeBuffer(pBuffer);
+				}
+			}
+			else
+			{
+				status = MH_ERROR_MEMORY_ALLOC;
+			}
+		}
+		else
+		{
+			status = MH_ERROR_ALREADY_CREATED;
+		}
+	}
+	else
+	{
+		status = MH_ERROR_NOT_EXECUTABLE;
+	}
+
+	return status;
 }
 
 //-------------------------------------------------------------------------
-static VOID LeaveSpinLock(VOID)
+// Check Hook functions.
+static void CheckHooks()
 {
-    InterlockedExchange(&g_isLocked, FALSE);
+	UINT i;
+	EnterSpinLock();
+	for (i = 0; i < g_hooks.size; ++i)
+	{
+		if (!g_hooks.pItems[i].isHooked)
+		{
+			HMODULE hModule = GetModuleHandleW(g_hooks.pItems[i].Module);
+			if (NULL != hModule)
+			{
+				PVOID pTarget = GetProcAddress(hModule, g_hooks.pItems[i].ProcName);
+				if (NULL != pTarget)
+				{
+					g_hooks.pItems[i].pTarget = pTarget;
+					CreateHookInternal(pTarget, g_hooks.pItems[i].pDetour, g_hooks.pItems[i].ppOriginal);
+				}
+			}
+		}
+	}
+	LeaveSpinLock();
+}
+
+//-------------------------------------------------------------------------
+// LdrLoadDll detoured function.
+static long __stdcall _LdrLoadDll(IN PWCHAR PathToFile OPTIONAL, IN PULONG Flags OPTIONAL, IN PVOID ModuleFileName, OUT PHANDLE ModuleHandle)
+{
+	CheckHooks();
+	return g_pfLdrLoadDll(PathToFile, Flags, ModuleFileName, ModuleHandle);
 }
 
 //-------------------------------------------------------------------------
@@ -495,6 +642,32 @@ MH_STATUS WINAPI MH_Initialize(VOID)
     LeaveSpinLock();
 
     return status;
+}
+
+//-------------------------------------------------------------------------
+MH_STATUS WINAPI MH_InitializeEx(VOID)
+{
+	MH_STATUS status = MH_OK;
+	g_pfLdrLoadDll = NULL;
+
+	// it must call after ntdll load.
+	HMODULE hModule;
+	LPVOID  pTarget;
+
+	hModule = GetModuleHandleW(L"ntdll.dll");
+	if (hModule == NULL)
+		return MH_ERROR_MODULE_NOT_FOUND;
+
+	pTarget = (LPVOID)GetProcAddress(hModule, "LdrLoadDll");
+	if (pTarget == NULL)
+		return MH_ERROR_FUNCTION_NOT_FOUND;
+
+	status = MH_CreateHook(pTarget, _LdrLoadDll, (PVOID*)&g_pfLdrLoadDll);
+	if (MH_OK == status)
+	{
+		status = MH_EnableHook(pTarget);
+	}
+	return status;
 }
 
 //-------------------------------------------------------------------------
@@ -545,84 +718,7 @@ MH_STATUS WINAPI MH_CreateHook(LPVOID pTarget, LPVOID pDetour, LPVOID *ppOrigina
 
     if (g_hHeap != NULL)
     {
-        if (IsExecutableAddress(pTarget) && IsExecutableAddress(pDetour))
-        {
-            UINT pos = FindHookEntry(pTarget);
-            if (pos == INVALID_HOOK_POS)
-            {
-                LPVOID pBuffer = AllocateBuffer(pTarget);
-                if (pBuffer != NULL)
-                {
-                    TRAMPOLINE ct;
-
-                    ct.pTarget = pTarget;
-                    ct.pDetour = pDetour;
-                    ct.pTrampoline = pBuffer;
-                    if (CreateTrampolineFunction(&ct))
-                    {
-                        PHOOK_ENTRY pHook = AddHookEntry();
-                        if (pHook != NULL)
-                        {
-                            pHook->pTarget     = ct.pTarget;
-#ifdef _M_X64
-                            pHook->pDetour     = ct.pRelay;
-#else
-                            pHook->pDetour     = ct.pDetour;
-#endif
-                            pHook->pTrampoline = ct.pTrampoline;
-                            pHook->patchAbove  = ct.patchAbove;
-                            pHook->isEnabled   = FALSE;
-                            pHook->queueEnable = FALSE;
-                            pHook->nIP         = ct.nIP;
-                            memcpy(pHook->oldIPs, ct.oldIPs, ARRAYSIZE(ct.oldIPs));
-                            memcpy(pHook->newIPs, ct.newIPs, ARRAYSIZE(ct.newIPs));
-
-                            // Back up the target function.
-
-                            if (ct.patchAbove)
-                            {
-                                memcpy(
-                                    pHook->backup,
-                                    (LPBYTE)pTarget - sizeof(JMP_REL),
-                                    sizeof(JMP_REL) + sizeof(JMP_REL_SHORT));
-                            }
-                            else
-                            {
-                                memcpy(pHook->backup, pTarget, sizeof(JMP_REL));
-                            }
-
-                            if (ppOriginal != NULL)
-                                *ppOriginal = pHook->pTrampoline;
-                        }
-                        else
-                        {
-                            status = MH_ERROR_MEMORY_ALLOC;
-                        }
-                    }
-                    else
-                    {
-                        status = MH_ERROR_UNSUPPORTED_FUNCTION;
-                    }
-
-                    if (status != MH_OK)
-                    {
-                        FreeBuffer(pBuffer);
-                    }
-                }
-                else
-                {
-                    status = MH_ERROR_MEMORY_ALLOC;
-                }
-            }
-            else
-            {
-                status = MH_ERROR_ALREADY_CREATED;
-            }
-        }
-        else
-        {
-            status = MH_ERROR_NOT_EXECUTABLE;
-        }
+		status = CreateHookInternal(pTarget, pDetour, ppOriginal);
     }
     else
     {
@@ -893,13 +989,54 @@ MH_STATUS WINAPI MH_CreateHookApiEx(
 
 	// RegisterHookAPI
 	if (status == MH_ERROR_MODULE_NOT_FOUND)
-	{		
+	{	
+		status = MH_OK;
+		EnterSpinLock();
 
+		if (g_hHeap != NULL)
+		{
+			wchar_t wc[MAX_PATH];
+			memset(wc, 0, MAX_PATH);
+			wchar_t* pwc = wcsstr(pszModule, L".dll");
+			if (NULL != pwc)
+			{
+				wcsncpy_s(wc, _countof(wc), pszModule, pwc - pszModule);
+			}
+			else
+				wcscpy_s(wc, _countof(wc), pszModule);
+
+			UINT pos = FindHookEntryEx(wc, pszProcName);
+			if (pos == INVALID_HOOK_POS)
+			{
+				PHOOK_ENTRY pHook = AddHookEntry();
+				if (pHook != NULL)
+				{
+					pHook->isHooked = FALSE;
+					pHook->pDetour = pDetour;
+					pHook->ppOriginal = ppOriginal;
+					wcsncpy_s(pHook->Module, _countof(pHook->Module), wc, wcslen(wc) + 1);
+					strncpy_s(pHook->ProcName, _countof(pHook->ProcName), pszProcName, strlen(pszProcName) + 1);
+				}
+				else
+				{
+					status = MH_ERROR_MEMORY_ALLOC;
+				}
+			}
+			else
+			{
+				return MH_ERROR_ALREADY_CREATED;
+			}
+		}
+		else
+		{
+			status = MH_ERROR_NOT_INITIALIZED;
+		}
+
+		LeaveSpinLock();
 	}
 
 	return status;
 }
-
 
 //-------------------------------------------------------------------------
 MH_STATUS WINAPI MH_RemoveHookApiEx(
@@ -919,9 +1056,60 @@ MH_STATUS WINAPI MH_RemoveHookApiEx(
 			return MH_ERROR_FUNCTION_NOT_FOUND;
 		status = MH_RemoveHook(pTarget);
 	}
-	
-	// Check whether hook api registered.
+	else
+	{
+		EnterSpinLock();
 
+		if (g_hHeap != NULL)
+		{
+			wchar_t wc[MAX_PATH];
+			memset(wc, 0, MAX_PATH);
+			wchar_t* pwc = wcsstr(pszModule, L".dll");
+			if (NULL != pwc)
+			{
+				wcsncpy_s(wc, _countof(wc), pszModule, pwc - pszModule);
+			}
+			else
+				wcscpy_s(wc, _countof(wc), pszModule);
+
+			UINT pos = FindHookEntryEx(wc, pszProcName);
+			if (pos != INVALID_HOOK_POS)
+			{
+				if (g_hooks.pItems[pos].isHooked)
+				{
+					// if function enter this section,
+					// It is wrong action.
+					// Even if Module doesn't load, function is already hooked?
+					if (g_hooks.pItems[pos].isEnabled)
+					{
+						FROZEN_THREADS threads;
+						Freeze(&threads, pos, ACTION_DISABLE);
+
+						status = EnableHookLL(pos, FALSE);
+
+						Unfreeze(&threads);
+					}
+
+				}
+
+				if (status == MH_OK)
+				{
+					FreeBuffer(g_hooks.pItems[pos].pTrampoline);
+					DeleteHookEntry(pos);
+				}
+			}
+			else
+			{
+				status = MH_ERROR_NOT_CREATED;
+			}
+		}
+		else
+		{
+			status = MH_ERROR_NOT_INITIALIZED;
+		}
+
+		LeaveSpinLock();
+	}
 
 	return status;
 }

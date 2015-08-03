@@ -105,6 +105,11 @@ extern "C" {
     // at the beginning of your program.
     MH_STATUS WINAPI MH_Initialize(VOID);
 
+	// Initialize the MinHook library. You must call this function EXACTLY ONCE
+	// at the beginning of your program.
+	// If you use Extension Feature, you must call MH_InitializeEx after call MH_Initialize.
+	MH_STATUS WINAPI MH_InitializeEx(VOID);
+
     // Uninitialize the MinHook library. You must call this function EXACTLY
     // ONCE at the end of your program.
     MH_STATUS WINAPI MH_Uninitialize(VOID);
@@ -140,7 +145,7 @@ extern "C" {
 	// Creates a Hook for the specified API function, in disabled state. 
 	// Even if module does not load yet, it prepares to create a Hook after module loads.
 	// Parameters:
-	//   pszModule  [in]  A pointer to the loaded module name which contains the
+	//   pszModule  [in]  A pointer to the module name which contains the
 	//                    target function.
 	//   pszTarget  [in]  A pointer to the target function name, which will be
 	//                    overridden by the detour function.
@@ -161,7 +166,7 @@ extern "C" {
 	//
 	// Removes an already registered hook.
 	// Parameters:
-	//   pszModule  [in]  A pointer to the loaded module name which contains the
+	//   pszModule  [in]  A pointer to the module name which contains the
 	//                    target function.
 	//   pszTarget  [in]  A pointer to the target function name, which will be
 	//                    overridden by the detour function.
