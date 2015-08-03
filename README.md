@@ -7,13 +7,20 @@ Based on MinHook. (v1.3.2-beta3 - 21 Jul 2015 (Nuget package only))
 ### automatically hook api when dlls load.
 
   * In MH_CreateHookApi, function returns MH_ERROR_MODULE_NOT_FOUND error if GetModuleHandleW returns NULL.
+  * Add new API - MH_CreateHookApiEx , MH_RemoveHookEx for this feature.
+  * Before you use these APIs, you must call "MH_InitailizeEx".
+
+### give option to enable hook automatically when hook api succeed.
+
+  * MH_CreateHookApiEx API give you option to enable hook automatically when hook api succeed.
 
 ### automatically linking library when include header.
 
   * In user-side, it must contain linking library before using MinHook.
 
-
+======================================================
 # MinHook
+======================================================
 
 The Minimalistic x86/x64 API Hooking Library for Windows
 
