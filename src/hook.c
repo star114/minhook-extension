@@ -156,6 +156,7 @@ static UINT FindHookEntryEx(LPCWSTR pszModule, LPCSTR pszProcName)
 	UINT i;
 	for (i = 0; i < g_hooks.size; ++i)
 	{
+		// compare ModuleName and ProcName.
 		if (0 == _wcsicmp(pszModule, g_hooks.pItems[i].Module) && 0 == _stricmp(pszProcName, g_hooks.pItems[i].ProcName))
 			return i;
 	}
@@ -589,8 +590,10 @@ static void CheckHooks()
 	EnterSpinLock();
 	for (i = 0; i < g_hooks.size; ++i)
 	{
+		// Check already hooked.
 		if (!g_hooks.pItems[i].isHooked)
 		{
+			// Check Module loaded.
 			HMODULE hModule = GetModuleHandleW(g_hooks.pItems[i].Module);
 			if (NULL != hModule)
 			{
@@ -598,7 +601,18 @@ static void CheckHooks()
 				if (NULL != pTarget)
 				{
 					g_hooks.pItems[i].pTarget = pTarget;
-					CreateHookInternal(pTarget, g_hooks.pItems[i].pDetour, g_hooks.pItems[i].ppOriginal);
+					// Create Hook.
+					if (CreateHookInternal(pTarget, g_hooks.pItems[i].pDetour, g_hooks.pItems[i].ppOriginal) == MH_OK)
+					{
+						//Enable Hook.
+						if (g_hooks.pItems[i].isEnabled != TRUE)
+						{
+							FROZEN_THREADS threads;
+							Freeze(&threads, i, ACTION_ENABLE);
+							EnableHookLL(i, TRUE);
+							Unfreeze(&threads);
+						}
+					}
 				}
 			}
 		}
@@ -995,6 +1009,7 @@ MH_STATUS WINAPI MH_CreateHookApiEx(
 
 		if (g_hHeap != NULL)
 		{
+			// Convert Module name to strict format(do not have .dll postfix.)
 			wchar_t wc[MAX_PATH];
 			memset(wc, 0, MAX_PATH);
 			wchar_t* pwc = wcsstr(pszModule, L".dll");
@@ -1008,6 +1023,7 @@ MH_STATUS WINAPI MH_CreateHookApiEx(
 			UINT pos = FindHookEntryEx(wc, pszProcName);
 			if (pos == INVALID_HOOK_POS)
 			{
+				// Add New Entry for hooking later.
 				PHOOK_ENTRY pHook = AddHookEntry();
 				if (pHook != NULL)
 				{
@@ -1062,6 +1078,7 @@ MH_STATUS WINAPI MH_RemoveHookApiEx(
 
 		if (g_hHeap != NULL)
 		{
+			// Convert Module name to strict format(do not have .dll postfix.)
 			wchar_t wc[MAX_PATH];
 			memset(wc, 0, MAX_PATH);
 			wchar_t* pwc = wcsstr(pszModule, L".dll");
